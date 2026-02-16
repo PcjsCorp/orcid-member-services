@@ -119,7 +119,7 @@ class AddMissingORCIDiDFROMAffiliations:
                                 modified_count += result.modified_count
 
                                 logger.info(
-                                    f"Assertion updated id:={assertion["_id"]}, orcid={orcid_record.get("orcid")}"
+                                    f"Assertion updated id:={assertion['_id']}, orcid={orcid_record.get('orcid')}"
                                 )
 
                         if not same_salesforce_id:
