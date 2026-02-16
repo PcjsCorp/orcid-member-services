@@ -7,7 +7,6 @@ This script adds any missing ORCID iDs from affiliations that have status 'IN_OR
 Related to: https://app.clickup.com/t/9014437828/PD-3780
 
 Usage:
-    fix_short_sf_ids.py should be executed first
     python add_missing_ORCID_iD_from_affiliations.py
 """
 
@@ -75,7 +74,7 @@ class AddMissingORCIDiDFROMAffiliations:
 
         logger.info("\n" + "="*80)
 
-    def find_assertions(self, assertions: List[Dict[str, Any]]) -> int:
+    def fix_assertions(self, assertions: List[Dict[str, Any]]) -> int:
         """
         Fix the assertions without Orcid iD.
 
@@ -107,7 +106,7 @@ class AddMissingORCIDiDFROMAffiliations:
                         for t in tokens:
                             salesforce_id = t.get("salesforce_id")
 
-                            if assertion_salesforce_id == salesforce_id:
+                            if assertion_salesforce_id == salesforce_id and not t.get("revoked_date"):
                                 same_salesforce_id = True
                                 result = self.collection_assertion.update_one(
                                     {"_id": assertion["_id"]},
@@ -158,7 +157,7 @@ def parse_arguments():
         epilog="""
 Examples:
   # Interactive mode
-  # fix_short_sf_ids.py should be executed first
+  # find_short_sf_ids.py should be executed first
   python add_missing_ORCID_iD_from_affiliations.py
 
 Environment Variables:
@@ -220,7 +219,7 @@ def main():
             logger.info("\n\n Operation cancelled by user")
             return 1
 
-        updated_count = fixer.find_assertions(assertions)
+        updated_count = fixer.fix_assertions(assertions)
 
         if updated_count > 0:
             if not fixer.verify_fixes():
