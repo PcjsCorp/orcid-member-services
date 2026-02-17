@@ -8,11 +8,12 @@ This script accepts the following parameters:
 
 - Salesforce Organization ID to update (--source)
 - Delete member flag (--delete)
+- Force update member SF id (--force_update)
 
 All references to the organization being updated (including users and assertions) are reassigned to the Target Salesforce Organization ID.
 
 If the --delete flag is provided, the script deletes the updated (now obsolete) Salesforce Organization record from the member collection after all references have been successfully updated.
-If the --ignore flag is provided, the script ignore if the target salesforce Id exists
+If the --force_update flag is provided, the script update the SF id of the source member.
 
 
 Related to: https://app.clickup.com/t/9014437828/PD-3781
@@ -38,12 +39,13 @@ logger = setup_logger(__name__, log_file='manage-organizations.log')
 
 class UpdateOrganizationMember:
 
-    def __init__(self, connection_to_db: MongoDBConnection, target: str, source: str, delete: bool):
+    def __init__(self, connection_to_db: MongoDBConnection, target: str, source: str, delete: bool, force_update: bool):
         self.connection = connection_to_db
         self.collection_member = connection_to_db.get_collection('member')
         self.target = target
         self.source = source
         self.delete = delete
+        self.force_update = force_update
 
     def find_problematic_members(self):
         """
@@ -74,25 +76,33 @@ class UpdateOrganizationMember:
                     raise ValueError(
                         f"Error! Member to merge not found: source={self.source}"
                     )
-            else:
+
+            if self.force_update:
                 if not source:
                     raise ValueError(
-                        f"Error! Member source to update not found: {self.source}"
-                    )
-                if target:
-                    raise ValueError(
-                        f"Error! Member to update already exists: target={self.target}"
+                        f"Error! Member to update not found: source={self.source}"
                     )
 
+                if target:
+                    raise ValueError(
+                        f"Error! Member to update already exist: target={self.target}"
+                    )
 
             action = "merge" if self.delete else "update"
 
-            logger.info(
-                "Found source member to %s salesforce_id=%s, client_name=%s",
-                action,
-                source.get("salesforce_id"),
-                source.get("client_name"),
-            )
+            if source:
+                logger.info(
+                    "Found source member to %s salesforce_id=%s, client_name=%s",
+                    action,
+                    source.get("salesforce_id"),
+                    source.get("client_name"),
+                )
+            else:
+                logger.info(
+                    "Source member not found to %s salesforce_id=%s",
+                    action,
+                    self.source
+                )
 
             if target:
                 logger.info(
@@ -103,10 +113,9 @@ class UpdateOrganizationMember:
                 )
             else:
                 logger.info(
-                    "Target member not found to %s salesforce_id=%s, client_name=%s",
+                    "Target member not found to %s salesforce_id=%s",
                     action,
-                    source.get("salesforce_id"),
-                    source.get("client_name"),
+                    self.target
                 )
 
         except OperationFailure as e:
@@ -125,32 +134,32 @@ class UpdateOrganizationMember:
 
                 if result.deleted_count == 1:
                     logger.info(
-                        "Updated member from memberToDelete=%s to target=%s",
+                        "Member deleted %s",
                         self.source,
-                        self.target,
                     )
                 else:
                     logger.error(
-                        "Failed to update member salesforce_id=%s",
+                        "Failed to delete member salesforce_id=%s",
                         self.source
                     )
             else :
-                result = self.collection_member.update_one(
-                    {"salesforce_id": self.source},
-                    {"$set": {"salesforce_id": self.target}}
-                )
+                if self.force_update:
+                    result = self.collection_member.update_one(
+                        {"salesforce_id": self.source},
+                        {"$set": {"salesforce_id": self.target}}
+                    )
 
-            if result.modified_count == 1:
-                logger.info(
-                    "Updated member salesforce_id from %s to %s",
-                    self.source,
-                    self.target
-                )
-            else:
-                logger.warning(
-                    "Member salesforce_id=%s already up to date",
-                    self.source
-                )
+                    if result.modified_count == 1:
+                        logger.info(
+                            "Updated member salesforce_id from %s to %s",
+                            self.source,
+                            self.target
+                        )
+                    else:
+                        logger.warning(
+                            "Member salesforce_id=%s already up to date",
+                            self.source
+                        )
 
         except OperationFailure as e:
             logger.error(f"Failed to query members: {e}")
@@ -251,7 +260,7 @@ class UpdateOrganizationsAssertions:
         try:
             logger.info("Searching for send_notifications_request to update...")
             send_notifications_request = list(self.collection_send_notifications_request.find({ 'salesforce_id': self.source }))
-            logger.info(f"Found {len(send_notifications_request)} assertions to fix")
+            logger.info(f"Found {len(send_notifications_request)} send_notifications_request to fix")
             return send_notifications_request
         except OperationFailure as e:
             logger.error(f"Failed to query send_notifications_request: {e}")
@@ -291,7 +300,7 @@ class UpdateOrganizationsAssertions:
 
     def print_send_notifications_request_report(self, send_notifications_request: List[Dict[str, Any]]):
         if not send_notifications_request:
-            logger.info("No problematic orcid records found")
+            logger.info("No problematic send notifications found")
             return
 
         logger.info("\n" + "="*80)
@@ -524,7 +533,7 @@ class UpdateOrganizationsUser:
             return result.modified_count
 
         except OperationFailure as e:
-            logger.error(f" Failed to update orcid records: {e}")
+            logger.error(f" Failed to update users: {e}")
             return 0
         except Exception as e:
             logger.error(f" Unexpected error during update: {e}")
@@ -562,7 +571,12 @@ Examples:
     parser.add_argument(
         "--delete",
         action="store_true",
-        help="Delete the member after references are updated"
+        help="Delete the member source after references are updated"
+    )
+    parser.add_argument(
+        "--force_update",
+        action="store_true",
+        help="Update the member source salesforce id"
     )
 
     return parser.parse_args()
@@ -580,6 +594,7 @@ def main():
     target = args.target
     source = args.source
     delete = args.delete
+    force_update = args.force_update
 
     logger.info("="*80)
     logger.info("Manage organizations")
@@ -590,6 +605,7 @@ def main():
     logger.info(f"Target SF iD: {target}")
     logger.info(f"Source SF iD: {source}")
     logger.info(f"Delete option: {delete}")
+    logger.info(f"Force update member option: {force_update}")
     logger.info("="*80 + "\n")
 
     connection_assertionservice = MongoDBConnection(mongo_uri, database_assertionservice)
@@ -609,7 +625,7 @@ def main():
             logger.error("Failed to connect to memberservice MongoDB. Exiting.")
             return 1
 
-        fixer_memberservice = UpdateOrganizationMember(connection_memberservice, target, source, delete)
+        fixer_memberservice = UpdateOrganizationMember(connection_memberservice, target, source, delete, force_update)
 
         fixer_memberservice.find_problematic_members()
 
@@ -641,7 +657,7 @@ def main():
         logger.info("  WARNING: This will modify the database!")
         logger.info(f"  {len(assertions)} assertions will be updated")
         logger.info(f"  {len(orcid_records)} orcid records will be updated")
-        logger.info(f"  {len(send_notifications_request)} users will be updated")
+        logger.info(f"  {len(send_notifications_request)} send_notifications_request will be updated")
         logger.info(f"  {len(users)} users will be updated")
 
         if delete:
