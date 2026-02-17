@@ -61,23 +61,52 @@ class UpdateOrganizationMember:
                 {"salesforce_id": self.target}
             )
 
-            if not source:
-                raise ValueError(f"Member to update not found: {self.source}")
+            if self.delete:
+                if not source and not target:
+                    raise ValueError(
+                        f"Error! Members to merge not found: source={self.source}, target={self.target}"
+                    )
+                if not target:
+                    raise ValueError(
+                        f"Error! Member to merge not found: target={self.target}"
+                    )
+                if not source:
+                    raise ValueError(
+                        f"Error! Member to merge not found: source={self.source}"
+                    )
+            else:
+                if not source:
+                    raise ValueError(
+                        f"Error! Member source to update not found: {self.source}"
+                    )
+                if target:
+                    raise ValueError(
+                        f"Error! Member to update already exists: target={self.target}"
+                    )
+
+
+            action = "merge" if self.delete else "update"
 
             logger.info(
-                "Found member to update salesforce_id=%s, client_name=%s",
+                "Found source member to %s salesforce_id=%s, client_name=%s",
+                action,
                 source.get("salesforce_id"),
                 source.get("client_name"),
             )
 
-            if not target:
-                if not self.delete:
-                    raise ValueError(f"Target member not found: {self.source}")
-            else:
+            if target:
                 logger.info(
-                    "Found target member salesforce_id=%s, client_name=%s",
+                    "Found target member to %s salesforce_id=%s, client_name=%s",
+                    action,
                     target.get("salesforce_id"),
                     target.get("client_name"),
+                )
+            else:
+                logger.info(
+                    "Target member not found to %s salesforce_id=%s, client_name=%s",
+                    action,
+                    source.get("salesforce_id"),
+                    source.get("client_name"),
                 )
 
         except OperationFailure as e:
@@ -123,19 +152,18 @@ class UpdateOrganizationMember:
                     self.source
                 )
 
-
-
         except OperationFailure as e:
             logger.error(f"Failed to query members: {e}")
         except Exception as e:
             logger.exception("Unexpected error during member update search")
 
-class UpdateOrganizationsAssertionAndOrcidRecords:
+class UpdateOrganizationsAssertions:
 
     def __init__(self, connection_to_db: MongoDBConnection, target: str, source: str):
         self.connection_to_db = connection_to_db
         self.collection_assertion = connection_to_db.get_collection('assertion')
         self.collection_orcid_record = connection_to_db.get_collection('orcid_record')
+        self.collection_send_notifications_request = connection_to_db.get_collection('send_notifications_request')
         self.target = target
         self.source = source
 
@@ -212,6 +240,27 @@ class UpdateOrganizationsAssertionAndOrcidRecords:
             logger.error(f"Unexpected error during query: {e}")
             return []
 
+    def find_problematic_send_notifications_request(self) -> List[Dict[str, Any]]:
+        """
+        Find send_notifications_request to update.
+
+        Returns:
+            List of problematic send_notifications_request documents
+        """
+
+        try:
+            logger.info("Searching for send_notifications_request to update...")
+            send_notifications_request = list(self.collection_send_notifications_request.find({ 'salesforce_id': self.source }))
+            logger.info(f"Found {len(send_notifications_request)} assertions to fix")
+            return send_notifications_request
+        except OperationFailure as e:
+            logger.error(f"Failed to query send_notifications_request: {e}")
+            return []
+        except Exception as e:
+            logger.error(f"Unexpected error during query: {e}")
+            return []
+
+
     def print_assertions_report(self, assertions: List[Dict[str, Any]]):
         if not assertions:
             logger.info("No problematic assertions found")
@@ -240,7 +289,21 @@ class UpdateOrganizationsAssertionAndOrcidRecords:
 
         logger.info("\n" + "="*80)
 
-    def find_assertions(self, assertions: List[Dict[str, Any]]) -> int:
+    def print_send_notifications_request_report(self, send_notifications_request: List[Dict[str, Any]]):
+        if not send_notifications_request:
+            logger.info("No problematic orcid records found")
+            return
+
+        logger.info("\n" + "="*80)
+        logger.info("PROBLEMATIC SEND NOTIFICATIONS REQUEST REPORT")
+        logger.info("="*80)
+
+        for i, rec in enumerate(send_notifications_request, 1):
+            logger.info(f" _id: {rec.get('_id')}, email: {rec.get('email')} Salesforce Id: {rec.get('salesforce_id')}")
+
+        logger.info("\n" + "="*80)
+
+    def fix_assertions(self, assertions: List[Dict[str, Any]]) -> int:
         """
         Fix the assertions without Orcid iD.
 
@@ -273,7 +336,7 @@ class UpdateOrganizationsAssertionAndOrcidRecords:
             logger.error(f" Unexpected error during update: {e}")
             return 0
 
-    def find_orcid_records(self, orcid_records: List[Dict[str, Any]]) -> int:
+    def fix_orcid_records(self, orcid_records: List[Dict[str, Any]]) -> int:
         """
         Fix the orcid records that we wanted to update.
 
@@ -325,6 +388,40 @@ class UpdateOrganizationsAssertionAndOrcidRecords:
             logger.error(f" Unexpected error during update: {e}")
             return 0
 
+    def fix_send_notifications_request(self, send_notifications_request: List[Dict[str, Any]]) -> int:
+        """
+        Fix the send_notifications_request without Orcid iD.
+
+        Returns:
+            Number of send_notifications_request updated
+        """
+        if not send_notifications_request:
+            logger.info("No send_notifications_request to fix")
+            return 0
+
+        logger.info(f"\n Applying fixes to {len(send_notifications_request)} send_notifications_request...")
+
+        try:
+
+            result = self.collection_send_notifications_request.update_many(
+                {'salesforce_id': self.source},
+                {'$set': {'salesforce_id': self.target}}
+            )
+
+            logger.info(f" Successfully updated {result.modified_count} send_notifications_request")
+            logger.info(f"   Matched: {result.matched_count}")
+            logger.info(f"   Modified: {result.modified_count}")
+
+            return result.modified_count
+
+        except OperationFailure as e:
+            logger.error(f" Failed to update send_notifications_request: {e}")
+            return 0
+        except Exception as e:
+            logger.error(f" Unexpected error during update: {e}")
+            return 0
+
+
     def verify_fixes_assertions(self) -> bool:
         logger.info("\n Verifying fixes assertions...")
         remaining = self.find_problematic_assertions()
@@ -345,6 +442,17 @@ class UpdateOrganizationsAssertionAndOrcidRecords:
             return True
         else:
             logger.warning(f" Verification failed: {len(remaining)} problematic orcid records still exist")
+            return False
+
+    def verify_fixes_send_notifications_request(self) -> bool:
+        logger.info("\n Verifying fixes send_notifications_request...")
+        remaining = self.find_problematic_send_notifications_request()
+
+        if not remaining:
+            logger.info(" Verification passed: No problematic send_notifications_request found")
+            return True
+        else:
+            logger.warning(f" Verification failed: {len(remaining)} problematic send_notifications_request still exist")
             return False
 
 class UpdateOrganizationsUser:
@@ -477,7 +585,7 @@ def main():
     logger.info("Manage organizations")
     logger.info("="*80)
     logger.info(f"Databases: {database_assertionservice}, {database_userservice} and {database_memberservice} ")
-    logger.info(f"Collections: assertion, orcid_record, jhi_user and member")
+    logger.info(f"Collections: assertion, orcid_record, send_notifications_request, jhi_user and member")
     logger.info(f"MongoDB URI: {mongo_uri[:20]}..." if len(mongo_uri) > 20 else f"MongoDB URI: {mongo_uri}")
     logger.info(f"Target SF iD: {target}")
     logger.info(f"Source SF iD: {source}")
@@ -505,15 +613,19 @@ def main():
 
         fixer_memberservice.find_problematic_members()
 
-        fixer_assertionservice = UpdateOrganizationsAssertionAndOrcidRecords(connection_assertionservice, target, source)
+        fixer_assertionservice = UpdateOrganizationsAssertions(connection_assertionservice, target, source)
 
         assertions = fixer_assertionservice.find_problematic_assertions()
 
         orcid_records = fixer_assertionservice.find_problematic_orcid_records()
 
+        send_notifications_request = fixer_assertionservice.find_problematic_send_notifications_request()
+
         fixer_assertionservice.print_assertions_report(assertions)
 
         fixer_assertionservice.print_orcid_records_report(orcid_records)
+
+        fixer_assertionservice.print_send_notifications_request_report(send_notifications_request)
 
         fixer_userservice = UpdateOrganizationsUser(connection_userservice, 'jhi_user', target, source)
 
@@ -521,14 +633,15 @@ def main():
 
         fixer_userservice.print_users_report(users)
 
-        if not assertions and not orcid_records and not users:
-            logger.info("\n No fixes needed. All assertions, orcid records and users are correct.")
+        if not assertions and not orcid_records and not send_notifications_request and not users:
+            logger.info("\n No fixes needed. All assertions, orcid records, send_notifications_request and users are correct.")
             return 0
 
         logger.info("\n" + "="*80)
         logger.info("  WARNING: This will modify the database!")
         logger.info(f"  {len(assertions)} assertions will be updated")
         logger.info(f"  {len(orcid_records)} orcid records will be updated")
+        logger.info(f"  {len(send_notifications_request)} users will be updated")
         logger.info(f"  {len(users)} users will be updated")
 
         if delete:
@@ -544,18 +657,25 @@ def main():
             logger.info("\n\n Operation cancelled by user")
             return 1
 
-        updated_count_assertions = fixer_assertionservice.find_assertions(assertions)
+        updated_count_assertions = fixer_assertionservice.fix_assertions(assertions)
 
         if updated_count_assertions > 0:
             if not fixer_assertionservice.verify_fixes_assertions():
                 logger.warning("\n Some assertions may still need attention")
                 return 1
 
-        updated_count_orcid_records = fixer_assertionservice.find_orcid_records(orcid_records)
+        updated_count_orcid_records = fixer_assertionservice.fix_orcid_records(orcid_records)
 
         if updated_count_orcid_records > 0:
             if not fixer_assertionservice.verify_fixes_orcid_records():
                 logger.warning("\n Some orcid records may still need attention")
+                return 1
+
+        updated_count_send_notifications_request = fixer_assertionservice.fix_send_notifications_request(send_notifications_request)
+
+        if updated_count_send_notifications_request > 0:
+            if not fixer_assertionservice.verify_fixes_send_notifications_request():
+                logger.warning("\n Some send_notifications_request may still need attention")
                 return 1
 
         updated_count_users = fixer_userservice.find_users(users)

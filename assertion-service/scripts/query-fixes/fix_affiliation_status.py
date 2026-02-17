@@ -20,7 +20,7 @@ from logger_config import setup_logger
 from db_connection import MongoDBConnection
 from config import Config
 
-logger = setup_logger(__name__, log_file='affiliation_fix.log')
+logger = setup_logger(__name__, log_file='fix_affiliation_status.log')
 
 
 class AffiliationStatusFixer:
@@ -40,7 +40,8 @@ class AffiliationStatusFixer:
         """
         query = {
             'added_to_orcid': {'$exists': True},
-            'put_code': {'$exists': True, '$ne': ""}
+            'put_code': {'$exists': False, '$ne': ""},
+            'status': {'$ne': 'USER_REVOKED_ACCESS'}
         }
 
         try:
