@@ -99,6 +99,11 @@ class UpdateOrganizationMember:
                     raise ValueError(
                         f"Error! Member to update already exist: target={self.target}"
                     )
+            else:
+                if not target:
+                    raise ValueError(
+                        f"Error! Target member should exist: target={self.target}"
+                    )
 
             action = "merge" if self.merge else "update"
 
@@ -264,19 +269,19 @@ class UpdateOrganizationsAssertions:
 
     def find_problematic_send_notifications_request(self) -> List[Dict[str, Any]]:
         """
-        Find send_notifications_request to update.
+        Find send notifications request to update.
 
         Returns:
             List of problematic send_notifications_request documents
         """
 
         try:
-            logger.info("Searching for send_notifications_request to update...")
+            logger.info("Searching for send notifications request to update...")
             send_notifications_request = list(self.collection_send_notifications_request.find({ 'salesforce_id': self.source }))
-            logger.info(f"Found {len(send_notifications_request)} send_notifications_request to fix")
+            logger.info(f"Found {len(send_notifications_request)} send notifications request to fix")
             return send_notifications_request
         except OperationFailure as e:
-            logger.error(f"Failed to query send_notifications_request: {e}")
+            logger.error(f"Failed to query send notifications request: {e}")
             return []
         except Exception as e:
             logger.error(f"Unexpected error during query: {e}")
@@ -412,16 +417,16 @@ class UpdateOrganizationsAssertions:
 
     def fix_send_notifications_request(self, send_notifications_request: List[Dict[str, Any]]) -> int:
         """
-        Fix the send_notifications_request without Orcid iD.
+            Fix the send notifications request to update.
 
         Returns:
             Number of send_notifications_request updated
         """
         if not send_notifications_request:
-            logger.info("No send_notifications_request to fix")
+            logger.info("No send notifications request to fix")
             return 0
 
-        logger.info(f"\n Applying fixes to {len(send_notifications_request)} send_notifications_request...")
+        logger.info(f"\n Applying fixes to {len(send_notifications_request)} send notifications request...")
 
         try:
 
@@ -430,14 +435,14 @@ class UpdateOrganizationsAssertions:
                 {'$set': {'salesforce_id': self.target}}
             )
 
-            logger.info(f" Successfully updated {result.modified_count} send_notifications_request")
+            logger.info(f" Successfully updated {result.modified_count} send notifications request")
             logger.info(f"   Matched: {result.matched_count}")
             logger.info(f"   Modified: {result.modified_count}")
 
             return result.modified_count
 
         except OperationFailure as e:
-            logger.error(f" Failed to update send_notifications_request: {e}")
+            logger.error(f" Failed to update send notifications request: {e}")
             return 0
         except Exception as e:
             logger.error(f" Unexpected error during update: {e}")
@@ -467,14 +472,14 @@ class UpdateOrganizationsAssertions:
             return False
 
     def verify_fixes_send_notifications_request(self) -> bool:
-        logger.info("\n Verifying fixes send_notifications_request...")
+        logger.info("\n Verifying fixes send notifications request...")
         remaining = self.find_problematic_send_notifications_request()
 
         if not remaining:
-            logger.info(" Verification passed: No problematic send_notifications_request found")
+            logger.info(" Verification passed: No problematic send notifications request found")
             return True
         else:
-            logger.warning(f" Verification failed: {len(remaining)} problematic send_notifications_request still exist")
+            logger.warning(f" Verification failed: {len(remaining)} problematic send notifications request still exist")
             return False
 
 class UpdateOrganizationsUser:
@@ -521,7 +526,7 @@ class UpdateOrganizationsUser:
                     for user in users_target:
                         if user.get("main_contact"):
                             logger.info(
-                                "User email=%s is the organization owner of the source salesforce_id=%s",
+                                "User email=%s is the organization owner of the target salesforce_id=%s",
                                 user.get("email"),
                                 self.target,
                             )
@@ -572,12 +577,12 @@ class UpdateOrganizationsUser:
         try:
 
             if self.remove_owner_from_source_users:
-                result = self.collection_users.update_one(
+                result_owner = self.collection_users.update_one(
                     {"_id": self.owner_from_source_users},
                     {"$set": {"main_contact": False}}
                 )
 
-                if result.modified_count == 1:
+                if result_owner.modified_count == 1:
                     logger.info(
                         "Removing organization owner flag from source member salesforce_id %s",
                         self.source
@@ -608,7 +613,7 @@ class UpdateOrganizationsUser:
 
     def verify_fixes_users(self) -> bool:
         logger.info("\n Verifying fixes users...")
-        remaining = self.find_problematic_users()
+        remaining, remove_owner_flag = self.find_problematic_users()
 
         if not remaining:
             logger.info(" Verification passed: No problematic users found")
@@ -724,7 +729,7 @@ def main():
         logger.info("  WARNING: This will modify the database!")
         logger.info(f"  {len(assertions)} assertions will be updated")
         logger.info(f"  {len(orcid_records)} orcid records will be updated")
-        logger.info(f"  {len(send_notifications_request)} send_notifications_request will be updated")
+        logger.info(f"  {len(send_notifications_request)} send notifications request will be updated")
         logger.info(f"  {len(users_list)} users will be updated")
         if remove_owner_flag:
             logger.info(f"  The organization owner user from the source member will be removed, since there is already one on the target")
@@ -760,7 +765,7 @@ def main():
 
         if updated_count_send_notifications_request > 0:
             if not fixer_assertionservice.verify_fixes_send_notifications_request():
-                logger.warning("\n Some send_notifications_request may still need attention")
+                logger.warning("\n Some send notifications request may still need attention")
                 return 1
 
         updated_count_users = fixer_userservice.fix_users(users_list)
