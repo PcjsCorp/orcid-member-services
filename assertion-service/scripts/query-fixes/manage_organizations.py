@@ -7,12 +7,12 @@ This script accepts the following parameters:
 - Target Salesforce Organization ID (--target)
 
 - Salesforce Organization ID to update (--source)
-- Delete member flag (--delete)
+- Merge member flag (--merge)
 - Force update member SF id (--force_update)
 
 All references to the organization being updated (including users and assertions) are reassigned to the Target Salesforce Organization ID.
 
-If the --delete flag is provided, the script deletes the updated (now obsolete) Salesforce Organization record from the member collection after all references have been successfully updated.
+If the --merge flag is provided, the script deletes the updated (now obsolete) Salesforce Organization record from the member collection after all references have been successfully updated.
 If the --force_update flag is provided, the script update the SF id of the source member.
 
 
@@ -39,12 +39,12 @@ logger = setup_logger(__name__, log_file='manage-organizations.log')
 
 class UpdateOrganizationMember:
 
-    def __init__(self, connection_to_db: MongoDBConnection, target: str, source: str, delete: bool, force_update: bool):
+    def __init__(self, connection_to_db: MongoDBConnection, target: str, source: str, merge: bool, force_update: bool):
         self.connection = connection_to_db
         self.collection_member = connection_to_db.get_collection('member')
         self.target = target
         self.source = source
-        self.delete = delete
+        self.merge = merge
         self.force_update = force_update
 
     def find_problematic_members(self):
@@ -75,7 +75,7 @@ class UpdateOrganizationMember:
                 {"salesforce_id": self.target}
             )
 
-            if self.delete:
+            if self.merge:
                 if not source and not target:
                     raise ValueError(
                         f"Error! Members to merge not found: source={self.source}, target={self.target}"
@@ -100,7 +100,7 @@ class UpdateOrganizationMember:
                         f"Error! Member to update already exist: target={self.target}"
                     )
 
-            action = "merge" if self.delete else "update"
+            action = "merge" if self.merge else "update"
 
             if source:
                 logger.info(
@@ -142,7 +142,7 @@ class UpdateOrganizationMember:
         try:
             logger.info("Updating member salesforce_id=%s", self.source)
 
-            if self.delete:
+            if self.merge:
                 result = self.collection_member.delete_one({"salesforce_id": self.source})
 
                 if result.deleted_count == 1:
@@ -479,12 +479,12 @@ class UpdateOrganizationsAssertions:
 
 class UpdateOrganizationsUser:
 
-    def __init__(self, connection_to_db: MongoDBConnection, collection: str, target: str, source: str, delete: bool, force_update: bool):
+    def __init__(self, connection_to_db: MongoDBConnection, collection: str, target: str, source: str, merge: bool, force_update: bool):
         self.connection_to_db = connection_to_db
         self.collection_users = connection_to_db.get_collection(collection)
         self.target = target
         self.source = source
-        self.delete = delete
+        self.merge = merge
         self.force_update = force_update
         self.owner_from_source_users = None
         self.remove_owner_from_source_users = False
@@ -510,7 +510,7 @@ class UpdateOrganizationsUser:
             logger.info(f"Found {len(users_source)} users to fix")
             owner_source = False
 
-            if self.delete or self.force_update:
+            if self.merge or self.force_update:
                 if users_source:
                     for user in users_source:
                         if user.get("main_contact"):
@@ -636,7 +636,7 @@ Examples:
     parser.add_argument('--target', help='Target organization SF iD')
     parser.add_argument('--source', help='Organization SF iD to update')
     parser.add_argument(
-        "--delete",
+        "--merge",
         action="store_true",
         help="Delete the member source after references are updated"
     )
@@ -660,7 +660,7 @@ def main():
     database_memberservice = 'memberservice'
     target = args.target
     source = args.source
-    delete = args.delete
+    merge = args.merge
     force_update = args.force_update
 
     logger.info("="*80)
@@ -671,7 +671,7 @@ def main():
     logger.info(f"MongoDB URI: {mongo_uri[:20]}..." if len(mongo_uri) > 20 else f"MongoDB URI: {mongo_uri}")
     logger.info(f"Target SF iD: {target}")
     logger.info(f"Source SF iD: {source}")
-    logger.info(f"Delete option: {delete}")
+    logger.info(f"Merge option: {merge}")
     logger.info(f"Force update member option: {force_update}")
     logger.info("="*80 + "\n")
 
@@ -692,7 +692,7 @@ def main():
             logger.error("Failed to connect to memberservice MongoDB. Exiting.")
             return 1
 
-        fixer_memberservice = UpdateOrganizationMember(connection_memberservice, target, source, delete, force_update)
+        fixer_memberservice = UpdateOrganizationMember(connection_memberservice, target, source, merge, force_update)
 
         fixer_memberservice.find_problematic_members()
 
@@ -710,7 +710,7 @@ def main():
 
         fixer_assertionservice.print_send_notifications_request_report(send_notifications_request)
 
-        fixer_userservice = UpdateOrganizationsUser(connection_userservice, 'jhi_user', target, source, delete, force_update)
+        fixer_userservice = UpdateOrganizationsUser(connection_userservice, 'jhi_user', target, source, merge, force_update)
 
         users_list, remove_owner_flag = fixer_userservice.find_problematic_users()
 
@@ -729,7 +729,7 @@ def main():
         if remove_owner_flag:
             logger.info(f"  The organization owner user from the source member will be removed, since there is already one on the target")
 
-        if delete:
+        if merge:
             logger.info(f"  Member {source} will be deleted")
         logger.info("="*80)
 
@@ -763,7 +763,7 @@ def main():
                 logger.warning("\n Some send_notifications_request may still need attention")
                 return 1
 
-        updated_count_users = fixer_userservice.fix_users(users)
+        updated_count_users = fixer_userservice.fix_users(users_list)
 
         if updated_count_users > 0:
             if not fixer_userservice.verify_fixes_users():
