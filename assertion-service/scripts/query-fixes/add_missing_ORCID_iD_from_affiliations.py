@@ -101,30 +101,38 @@ class AddMissingORCIDiDFROMAffiliations:
                     orcid_record_email = orcid_record.get('email')
                     if assertion_email == orcid_record_email:
                         same_salesforce_id = False
+                        revoked = False
                         tokens = orcid_record.get("tokens", [])
 
                         for t in tokens:
                             salesforce_id = t.get("salesforce_id")
 
-                            if assertion_salesforce_id == salesforce_id and not t.get("revoked_date"):
+                            if assertion_salesforce_id == salesforce_id:
                                 same_salesforce_id = True
-                                result = self.collection_assertion.update_one(
-                                    {"_id": assertion["_id"]},
-                                    {
-                                        "$set": {
-                                            "orcid_id": orcid_record.get("orcid")
+                                if not t.get("revoked_date"):
+                                    revoked = True
+                                    result = self.collection_assertion.update_one(
+                                        {"_id": assertion["_id"]},
+                                        {
+                                            "$set": {
+                                                "orcid_id": orcid_record.get("orcid")
+                                            }
                                         }
-                                    }
-                                )
-                                modified_count += result.modified_count
+                                    )
+                                    modified_count += result.modified_count
 
-                                logger.info(
-                                    f"Assertion updated id:={assertion['_id']}, orcid={orcid_record.get('orcid')}"
-                                )
+                                    logger.info(
+                                        f"Assertion updated id:={assertion['_id']}, orcid={orcid_record.get('orcid')}"
+                                    )
 
                         if not same_salesforce_id:
                             logger.info(
-                                f"Same assertion_email={assertion_email} and orcid_record_email={orcid_record_email} but not assertion_salesforce_id={assertion_salesforce_id}"
+                                f"Same assertion_email={assertion_email} and orcid_record_email={orcid_record_email} but not assertion_salesforce_id={assertion_salesforce_id} and "
+                            )
+
+                        if not revoked:
+                            logger.info(
+                                f"Orcid record revoked orcid_record_email:={orcid_record_email}"
                             )
 
             logger.info(f" Successfully updated {modified_count} orcid records")

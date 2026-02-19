@@ -15,6 +15,7 @@ import argparse
 import sys
 from typing import List, Dict, Any
 from pymongo.errors import OperationFailure
+from bson import ObjectId
 
 from logger_config import setup_logger
 from db_connection import MongoDBConnection
@@ -24,8 +25,6 @@ logger = setup_logger(__name__, log_file='fix_affiliation_status.log')
 
 
 class AffiliationStatusFixer:
-
-    TARGET_STATUS = 'pending'
 
     def __init__(self, connection: MongoDBConnection, collection_name: str):
         self.connection = connection
@@ -41,7 +40,7 @@ class AffiliationStatusFixer:
         query = {
             'added_to_orcid': {'$exists': True},
             'put_code': {'$exists': False, '$ne': ""},
-            'status': {'$ne': 'USER_REVOKED_ACCESS'}
+            'status': {'$nin': ['USER_REVOKED_ACCESS', 'PENDING']},
         }
 
         try:
@@ -81,8 +80,8 @@ class AffiliationStatusFixer:
             logger.info(f"     Status: {aff.get('status', 'Unknown')}")
             logger.info(f"     Put Code: {'(missing)' if 'put_code' not in aff else aff.get('put_code')}")
             logger.info(f"     Added to ORCID: {aff.get('added_to_orcid', 'Unknown')}")
-            logger.info(f"     ORCID: {aff.get('orcidId', 'Unknown')}")
-            logger.info(f"     Organization: {aff.get('organizationName', 'Unknown')}")
+            logger.info(f"     ORCID: {aff.get('orcid_id', 'Unknown')}")
+            logger.info(f"     Organization: {aff.get('org_name', 'Unknown')}")
 
         logger.info("\n" + "="*80)
 
@@ -102,9 +101,11 @@ class AffiliationStatusFixer:
         affiliation_ids = [aff['_id'] for aff in affiliations]
 
         try:
+            object_ids = [ObjectId(aid) if not isinstance(aid, ObjectId) else aid for aid in affiliation_ids]
+
             result = self.collection.update_many(
-                {'_id': {'$in': affiliation_ids}},
-                {'$set': {'status': self.TARGET_STATUS}}
+                {'_id': {'$in': object_ids}},
+                {'$set': {'status': 'PENDING'}}
             )
 
             logger.info(f" Successfully updated {result.modified_count} affiliations")
@@ -188,7 +189,7 @@ def main():
 
         logger.info("\n" + "="*80)
         logger.info("  WARNING: This will modify the database!")
-        logger.info(f"  {len(affiliations)} affiliations will be updated to status 'pending'")
+        logger.info(f"  {len(affiliations)} affiliations will be updated to status 'PENDING'")
         logger.info("="*80)
 
         try:
