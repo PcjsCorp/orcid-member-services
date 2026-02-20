@@ -24,7 +24,7 @@ Usage:
 
 import argparse
 import sys
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
 from pymongo.errors import OperationFailure
 
 # Import shared modules
@@ -47,7 +47,7 @@ class UpdateOrganizationMember:
         self.merge = merge
         self.force_update = force_update
 
-    def find_problematic_members(self):
+    def find_problematic_members(self) -> Any:
         """
         Find members to update.
         """
@@ -135,6 +135,8 @@ class UpdateOrganizationMember:
                     self.target
                 )
             logger.info("\n" + "="*80)
+
+            return target
 
         except OperationFailure as e:
             logger.error(f"Failed to query members: {e}")
@@ -484,7 +486,7 @@ class UpdateOrganizationsAssertions:
 
 class UpdateOrganizationsUser:
 
-    def __init__(self, connection_to_db: MongoDBConnection, collection: str, target: str, source: str, merge: bool, force_update: bool):
+    def __init__(self, connection_to_db: MongoDBConnection, collection: str, target: str, source: str, member_target: Any, merge: bool, force_update: bool):
         self.connection_to_db = connection_to_db
         self.collection_users = connection_to_db.get_collection(collection)
         self.target = target
@@ -493,8 +495,9 @@ class UpdateOrganizationsUser:
         self.force_update = force_update
         self.owner_from_source_users = None
         self.remove_owner_from_source_users = False
+        self.member_target = member_target
 
-    def find_problematic_users(self) -> tuple[List[Dict[str, Any]], bool]:
+    def find_problematic_users(self) -> Tuple[List[Dict[str, Any]], bool]:
         """
         Find users to update.
 
@@ -513,13 +516,14 @@ class UpdateOrganizationsUser:
             users_target = list(self.collection_users.find({ 'salesforce_id': self.target }))
 
             logger.info(f"Found {len(users_source)} users to fix")
-            owner_source = False
+            owner_target = False
 
             if self.merge or self.force_update:
                 if users_source:
                     for user in users_source:
                         if user.get("main_contact"):
-                            owner_source = True
+                            self.remove_owner_from_source_users = True
+                            self.owner_from_source_users = user.get("_id")
                             break
 
                 if users_target:
@@ -530,11 +534,10 @@ class UpdateOrganizationsUser:
                                 user.get("email"),
                                 self.target,
                             )
-                            self.remove_owner_from_source_users = True
-                            self.owner_from_source_users = user.get("_id")
+                            owner_target = True
                             break
 
-                if not owner_source and not self.remove_owner_from_source_users:
+                if not owner_target and not self.remove_owner_from_source_users:
                     raise ValueError(
                         f"Error! There is no organization owner"
                     )
@@ -595,10 +598,10 @@ class UpdateOrganizationsUser:
 
             result = self.collection_users.update_many(
                 {'salesforce_id': self.source},
-                {'$set': {'salesforce_id': self.target}}
+                {'$set': {'salesforce_id': self.target, 'member_name': self.member_target.get('client_name')}}
             )
 
-            logger.info(f" Successfully updated {result.modified_count} users")
+            logger.info(f" Successfully updated salesforce id and member name in {result.modified_count} users")
             logger.info(f"   Matched: {result.matched_count}")
             logger.info(f"   Modified: {result.modified_count}")
 
@@ -699,7 +702,7 @@ def main():
 
         fixer_memberservice = UpdateOrganizationMember(connection_memberservice, target, source, merge, force_update)
 
-        fixer_memberservice.find_problematic_members()
+        member_target = fixer_memberservice.find_problematic_members()
 
         fixer_assertionservice = UpdateOrganizationsAssertions(connection_assertionservice, target, source)
 
@@ -715,15 +718,16 @@ def main():
 
         fixer_assertionservice.print_send_notifications_request_report(send_notifications_request)
 
-        fixer_userservice = UpdateOrganizationsUser(connection_userservice, 'jhi_user', target, source, merge, force_update)
+        fixer_userservice = UpdateOrganizationsUser(connection_userservice, 'jhi_user', target, source, member_target, merge, force_update)
 
         users_list, remove_owner_flag = fixer_userservice.find_problematic_users()
 
         fixer_userservice. print_users_report(users_list)
 
         if not assertions and not orcid_records and not send_notifications_request and not users_list:
-            logger.info("\n No fixes needed. All assertions, orcid records, send notifications request and users are correct.")
-            return 0
+            if not merge and not force_update:
+                logger.info("\n No fixes needed. All assertions, orcid records, send notifications request and users are correct.")
+                return 0
 
         logger.info("\n" + "="*80)
         logger.info("  WARNING: This will modify the database!")
