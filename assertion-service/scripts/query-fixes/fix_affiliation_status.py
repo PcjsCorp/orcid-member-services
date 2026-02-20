@@ -74,8 +74,7 @@ class AffiliationStatusFixer:
         for status, count in status_counts.items():
             logger.info(f"  - {status}: {count}")
 
-        logger.info("\nSample affiliations (first 5):")
-        for i, aff in enumerate(affiliations[:5], 1):
+        for i, aff in enumerate(affiliations, 1):
             logger.info(f"\n  {i}. ID: {aff.get('_id')}")
             logger.info(f"     Status: {aff.get('status', 'Unknown')}")
             logger.info(f"     Put Code: {'(missing)' if 'put_code' not in aff else aff.get('put_code')}")
