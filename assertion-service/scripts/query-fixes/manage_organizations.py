@@ -504,7 +504,7 @@ class UpdateOrganizationsUser:
         Returns:
             Tuple containing:
             - List of problematic users documents
-            - Boolean indicating if owner should be removed from source users
+            - Boolean indicating if the owner should be removed from source users
         """
 
         try:
@@ -627,16 +627,14 @@ class UpdateOrganizationsUser:
 
 def parse_arguments():
     parser = argparse.ArgumentParser(
-        description='Manage assertions',
+        description='Manage organizations',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   # Interactive mode
-  python update_organizations.py
+  python manage_organizations.py
 
   MONGO_URI or MONGO_DB       - MongoDB connection string
-  MONGO_DATABASE or DATABASE  - Database name (default: assertionservice)
-  MONGO_COLLECTION or COLLECTION - Collection name (default: assertion)
         """
     )
 
@@ -646,12 +644,12 @@ Examples:
     parser.add_argument(
         "--merge",
         action="store_true",
-        help="Delete the member source after references are updated"
+        help="Delete the source member after references are updated"
     )
     parser.add_argument(
         "--force_update",
         action="store_true",
-        help="Update the member source salesforce id"
+        help="Update the source member salesforce id"
     )
 
     return parser.parse_args()
