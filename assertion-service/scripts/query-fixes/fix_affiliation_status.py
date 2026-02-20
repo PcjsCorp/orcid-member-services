@@ -40,7 +40,6 @@ class AffiliationStatusFixer:
         query = {
             'added_to_orcid': {'$exists': True},
             'put_code': {'$exists': False, '$ne': ""},
-            'status': {'$nin': ['USER_REVOKED_ACCESS', 'PENDING']},
         }
 
         try:
@@ -104,7 +103,7 @@ class AffiliationStatusFixer:
 
             result = self.collection.update_many(
                 {'_id': {'$in': object_ids}},
-                {'$set': {'status': 'PENDING'}}
+                {'$set': {'status': 'PENDING', 'added_to_orcid': None}}
             )
 
             logger.info(f" Successfully updated {result.modified_count} affiliations")

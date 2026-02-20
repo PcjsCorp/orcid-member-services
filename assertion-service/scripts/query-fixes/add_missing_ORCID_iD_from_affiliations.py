@@ -82,7 +82,7 @@ class AddMissingORCIDiDFROMAffiliations:
             Number of assertions successfully updated
         """
         if not assertions:
-            logger.info("No orcid records to fix")
+            logger.info("No assertions to fix")
             return 0
 
         logger.info(f"\n Applying fixes to {len(assertions)} assertions...")
@@ -132,12 +132,12 @@ class AddMissingORCIDiDFROMAffiliations:
                                 f"Same email orcid_record_email={orcid_record_email} but not assertion_salesforce_id={assertion_salesforce_id}"
                             )
 
-            logger.info(f" Successfully updated {modified_count} orcid records")
+            logger.info(f" Successfully updated {modified_count} assertions")
 
             return modified_count
 
         except OperationFailure as e:
-            logger.error(f" Failed to update orcid records: {e}")
+            logger.error(f" Failed to update assertions: {e}")
             return 0
         except Exception as e:
             logger.error(f" Unexpected error during update: {e}")
@@ -207,12 +207,12 @@ def main():
         fixer.print_report(assertions)
 
         if not assertions:
-            logger.info("\n No fixes needed. All orcid records are correct.")
+            logger.info("\n No fixes needed. All assertions are correct.")
             return 0
 
         logger.info("\n" + "="*80)
         logger.info("  WARNING: This will modify the database!")
-        logger.info(f"  {len(assertions)} orcid records will be updated")
+        logger.info(f"  {len(assertions)} assertions will be updated")
         logger.info("="*80)
 
         try:
@@ -228,7 +228,7 @@ def main():
 
         if updated_count > 0:
             if not fixer.verify_fixes():
-                logger.warning("\n Some orcid records may still need attention")
+                logger.warning("\n Some assertions may still need attention")
                 return 1
 
         logger.info("\n" + "="*80)
