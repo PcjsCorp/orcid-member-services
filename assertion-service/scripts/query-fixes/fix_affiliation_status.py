@@ -38,7 +38,7 @@ class AffiliationStatusFixer:
             List of problematic affiliation documents
         """
         query = {
-            'added_to_orcid': {'$exists': True},
+            'added_to_orcid': {'$exists': True, '$ne': None},
             'put_code': {'$exists': False, '$ne': ""},
         }
 
