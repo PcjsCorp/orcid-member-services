@@ -70,7 +70,7 @@ class AddMissingORCIDiDFROMAffiliations:
         logger.info("="*80)
 
         for i, rec in enumerate(assertions, 1):
-            logger.info(f" _id: {rec.get('_id')}, Email: {rec.get('email')}")
+            logger.info(f" _id: {rec.get('_id')}, Email: {rec.get('email')}, Salesforce ID: {rec.get('salesforce_id')}")
 
         logger.info("\n" + "="*80)
 
@@ -82,7 +82,7 @@ class AddMissingORCIDiDFROMAffiliations:
             Number of assertions successfully updated
         """
         if not assertions:
-            logger.info("No orcid records to fix")
+            logger.info("No assertions to fix")
             return 0
 
         logger.info(f"\n Applying fixes to {len(assertions)} assertions...")
@@ -94,45 +94,52 @@ class AddMissingORCIDiDFROMAffiliations:
         try:
 
             for assertion in assertions:
-                assertion_email = assertion.get('email')
                 assertion_salesforce_id = assertion.get('salesforce_id')
+                assertion_email = assertion.get('email')
 
                 for orcid_record in orcid_records:
+                    orcid = orcid_record.get('orcid')
                     orcid_record_email = orcid_record.get('email')
+
                     if assertion_email == orcid_record_email:
                         same_salesforce_id = False
                         tokens = orcid_record.get("tokens", [])
 
                         for t in tokens:
-                            salesforce_id = t.get("salesforce_id")
-
-                            if assertion_salesforce_id == salesforce_id and not t.get("revoked_date"):
+                            orcid_record_salesforce_id = t.get("salesforce_id")
+                            if assertion_salesforce_id == orcid_record_salesforce_id:
                                 same_salesforce_id = True
-                                result = self.collection_assertion.update_one(
-                                    {"_id": assertion["_id"]},
-                                    {
-                                        "$set": {
-                                            "orcid_id": orcid_record.get("orcid")
+                                if "revoked_date" not in t or t["revoked_date"] is None:
+                                    result = self.collection_assertion.update_one(
+                                        {"_id": assertion["_id"]},
+                                        {
+                                            "$set": {
+                                                "orcid_id": orcid
+                                            }
                                         }
-                                    }
-                                )
-                                modified_count += result.modified_count
+                                    )
+                                    modified_count += result.modified_count
 
-                                logger.info(
-                                    f"Assertion updated id:={assertion['_id']}, orcid={orcid_record.get('orcid')}"
-                                )
+                                    logger.info(
+                                        f"Assertion updated id:={assertion['_id']}, orcid={orcid}"
+                                    )
+                                    break
+                                else:
+                                    logger.info(
+                                        f"Orcid record revoked orcid:={orcid}"
+                                    )
 
                         if not same_salesforce_id:
-                            logger.info(
-                                f"Same assertion_email={assertion_email} and orcid_record_email={orcid_record_email} but not assertion_salesforce_id={assertion_salesforce_id}"
+                            logger.warning(
+                                f"Token mismatch: assertion email matches ORCID record, but Salesforce ID not found in tokens. email={orcid_record_email}, assertion_salesforce_id={assertion_salesforce_id}"
                             )
 
-            logger.info(f" Successfully updated {modified_count} orcid records")
+            logger.info(f" Successfully updated {modified_count} assertions")
 
             return modified_count
 
         except OperationFailure as e:
-            logger.error(f" Failed to update orcid records: {e}")
+            logger.error(f" Failed to update assertions: {e}")
             return 0
         except Exception as e:
             logger.error(f" Unexpected error during update: {e}")
@@ -202,12 +209,12 @@ def main():
         fixer.print_report(assertions)
 
         if not assertions:
-            logger.info("\n No fixes needed. All orcid records are correct.")
+            logger.info("\n No fixes needed. All assertions are correct.")
             return 0
 
         logger.info("\n" + "="*80)
         logger.info("  WARNING: This will modify the database!")
-        logger.info(f"  {len(assertions)} orcid records will be updated")
+        logger.info(f"  {len(assertions)} assertions will be updated")
         logger.info("="*80)
 
         try:
@@ -223,7 +230,7 @@ def main():
 
         if updated_count > 0:
             if not fixer.verify_fixes():
-                logger.warning("\n Some orcid records may still need attention")
+                logger.warning("\n Some assertions may still need attention")
                 return 1
 
         logger.info("\n" + "="*80)
